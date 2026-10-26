@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Code de Correction - L'école</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- ⚠️ RÈGLE BABEL OBLIGATOIRE -->
+    <script>
+      Babel.registerPreset('react-classic', {
+        presets: [
+          [Babel.availablePresets['react'], { runtime: 'classic' }]
+        ]
+      });
+    </script>
+
+    <style>
+        /* Structure de base pour éviter tout débordement */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Empêche le scroll global du navigateur */
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f8fafc;
+        }
+
+        #root {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Animations */
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        .slide-up { animation: slideUp 0.4s ease-out; }
+        .bounce-slight { animation: bounceSlight 2s infinite; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes bounceSlight { 
+            0%, 100% { transform: translateY(0); } 
+            50% { transform: translateY(-6px); } 
+        }
+
+        /* Etape 1 : Majuscule et ponctuation */
+        .target-part {
+            display: inline-block;
+            padding: 2px 4px;
+            margin: -2px -4px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            position: relative;
+            z-index: 10;
+        }
+        .step1-active .target-part { cursor: pointer; }
+        .step1-active .target-part:hover { background-color: #fde68a; }
+        .target-part.selected-step1 { 
+            background-color: #fcd34d;
+            color: #78350f;
+            font-weight: 900;
+        }
+
+        /* Etape 3 : Terminaisons et lunettes */
+        .circled-lunette {
+            display: inline-block;
+            border: 3px solid #3b82f6;
+            border-radius: 9999px;
+            padding: 0px 4px;
+            margin: 0 -2px;
+            background-color: #eff6ff;
+            color: #1e3a8a;
+            font-weight: 800;
+            position: relative;
+            z-index: 20;
+        }
+        
+        /* Etape 4 : Verbe souligné */
+        .verb-underlined {
+            border-bottom: 4px solid #ef4444;
+            color: #991b1b;
+            font-weight: 800;
+            padding-bottom: 2px;
+        }
+
+        /* Etape 5 : GNS rouge */
+        .gns-highlight {
+            color: #dc2626;
+            font-weight: 800;
+            background-color: #fee2e2;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+
+        /* Etape 6 : Doute orthographique */
+        .star-doubt {
+            position: absolute;
+            top: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #eab308;
+            font-size: 1.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 30;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Conteneur GN pour SVG */
+        .gn-container {
+            position: relative;
+            display: inline-flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+        }
+        .svg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 15;
+            overflow: visible;
+        }
+        .path-draw {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: drawPath 1.5s ease-out forwards;
+        }
+        @keyframes drawPath { to { stroke-dashoffset: 0; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="react-classic">
+        const { useState, useEffect, useRef, useLayoutEffect } = React;
+
+        const Icon = ({ name, className = "w-6 h-6" }) => {
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }, [name, className]);
+
+            return (
+                <span 
+                    style={{ display: 'contents' }}
+                    dangerouslySetInnerHTML={{ __html: `<i data-lucide="${name}" class="${className}"></i>` }}
+                />
+            );
+        };
+
+        // BASE DE DONNÉES - DONNÉES DE Suffixes ET MOTS NETTOYÉES (Evite le bug des doublements "ss")
+        const SENTENCES_DATA = [
+            // Phrase 1 : Avoir / école
+            {
+                words: [
+                    { id: 0, full: "Les", cap: "L", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "petits", cap: "", body: "petit", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "garçons", cap: "", body: "garçon", end: "s", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "ont", cap: "", body: "ont", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "un", cap: "", body: "un", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 5, full: "pupitre", cap: "", body: "pupitre", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 6, full: "bleu.", cap: "", body: "bleu", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'],
+                step2: [[0, 1, 2], [4, 5, 6]],
+                step3: [2, 5],
+                step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui ont un pupitre bleu ?",
+                    answerText: "C'est « Les petits garçons » (ils) -> ont",
+                    conjugation: { infinitive: "avoir", tense: "Présent de l'indicatif", forms: [{ pronoun: "j'", verb: "ai" }, { pronoun: "tu", verb: "as" }, { pronoun: "il/elle/on", verb: "a" }, { pronoun: "nous", verb: "avons" }, { pronoun: "vous", verb: "avez" }, { pronoun: "ils/elles", verb: "ont", isTarget: true }] }
+                },
+                step6: [2, 5],
+                dictionary: {
+                    2: { word: "garçon", class: "nom commun", gender: "masculin", number: "pluriel (s)", def: "Enfant de sexe masculin." },
+                    5: { word: "pupitre", class: "nom commun", gender: "masculin", number: "singulier", def: "Petit bureau d'écolier souvent muni d'un casier." }
+                },
+                reflection: {
+                    question: "Pourquoi l'adjectif « bleu » s'écrit-il sans 's' ?",
+                    options: ["Parce qu'il qualifie le nom 'pupitre' qui est au singulier.", "Parce que c'est une couleur invariable."],
+                    answer: 0,
+                    explanation: "L'adjectif s'accorde avec son nom noyau 'pupitre'. Il n'y a qu'un seul pupitre, donc 'bleu' reste au singulier."
+                }
+            },
+            // Phrase 2 : Finir / Régulier
+            {
+                words: [
+                    { id: 0, full: "Les", cap: "L", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "élèves", cap: "", body: "élève", end: "s", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "attentifs", cap: "", body: "attentif", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 3, full: "finissent", cap: "", body: "finissent", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "leur", cap: "", body: "leur", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 5, full: "long", cap: "", body: "long", end: "", punc: "", role: "adj", gn: 2 },
+                    { id: 6, full: "travail.", cap: "", body: "travail", end: "", punc: ".", role: "noun", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[0, 1, 2], [4, 5, 6]], step3: [1, 6], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui finissent leur long travail ?", answerText: "C'est « Les élèves attentifs » (ils) -> finissent",
+                    conjugation: { infinitive: "finir", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "finis" }, { pronoun: "tu", verb: "finis" }, { pronoun: "il/elle", verb: "finit" }, { pronoun: "nous", verb: "finissons" }, { pronoun: "vous", verb: "finissez" }, { pronoun: "ils/elles", verb: "finissent", isTarget: true }] }
+                },
+                step6: [2, 6],
+                dictionary: {
+                    2: { word: "attentif", class: "adjectif", gender: "masculin", number: "pluriel", def: "Qui prête une grande attention, qui écoute bien." },
+                    6: { word: "travail", class: "nom commun", gender: "masculin", number: "singulier", def: "Activité, tâche ou effort accompli pour produire un résultat." }
+                },
+                reflection: {
+                    question: "Quel mot donne son genre et son nombre à l'adjectif « attentifs » ?",
+                    options: ["Le nom 'élèves' (noyau du GN).", "Le verbe 'finissent'."],
+                    answer: 0,
+                    explanation: "C'est toujours le nom noyau (ici 'élèves') qui donne son genre et son nombre aux déterminants et adjectifs de son groupe."
+                }
+            },
+            // Phrase 3
+            {
+                words: [
+                    { id: 0, full: "La", cap: "L", body: "a", end: "", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "belle", cap: "", body: "bell", end: "e", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "fille", cap: "", body: "fill", end: "e", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "contemple", cap: "", body: "contemple", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "les", cap: "", body: "le", end: "s", punc: "", role: "det", gn: 2 },
+                    { id: 5, full: "étoiles", cap: "", body: "étoile", end: "s", punc: "", role: "noun", gn: 2 },
+                    { id: 6, full: "brillantes.", cap: "", body: "brillant", end: "es", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[0, 1, 2], [4, 5, 6]], step3: [2, 5], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui contemple les étoiles ?", answerText: "C'est « La belle fille » (elle) -> contemple",
+                    conjugation: { infinitive: "contempler", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "contemple" }, { pronoun: "tu", verb: "contemples" }, { pronoun: "il/elle", verb: "contemple", isTarget: true }, { pronoun: "nous", verb: "contemplons" }, { pronoun: "vous", verb: "contemplez" }, { pronoun: "ils", verb: "contemplent" }] }
+                },
+                step6: [3, 5],
+                dictionary: {
+                    3: { word: "contempler", class: "verbe", gender: "-", number: "-", def: "Regarder longuement, avec admiration ou attention." },
+                    5: { word: "étoile", class: "nom commun", gender: "féminin", number: "pluriel", def: "Astre qui brille dans le ciel la nuit." }
+                },
+                reflection: {
+                    question: "Pourquoi ajoute-t-on 'es' à 'brillantes' ?",
+                    options: ["Parce que le nom 'étoiles' est féminin pluriel.", "Pour faire plus joli."],
+                    answer: 0,
+                    explanation: "Une étoile (féminin) et il y en a plusieurs (pluriel). L'adjectif prend donc la marque du féminin 'e' et du pluriel 's'."
+                }
+            },
+            // Phrase 4
+            {
+                words: [
+                    { id: 0, full: "Nous", cap: "N", body: "ous", end: "", punc: "", role: "pronoun", gn: 1 },
+                    { id: 1, full: "allons", cap: "", body: "allons", end: "", punc: "", role: "verb", gn: null },
+                    { id: 2, full: "à", cap: "", body: "à", end: "", punc: "", role: "prep", gn: null },
+                    { id: 3, full: "la", cap: "", body: "la", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 4, full: "grande", cap: "", body: "grand", end: "e", punc: "", role: "adj", gn: 2 },
+                    { id: 5, full: "bibliothèque", cap: "", body: "bibliothèqu", end: "e", punc: "", role: "noun", gn: 2 },
+                    { id: 6, full: "municipale.", cap: "", body: "municipal", end: "e", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[3, 4, 5, 6]], step3: [5], step4: [1],
+                step5: {
+                    gnsWords: [0], verbId: 1, question: "Qui est-ce qui allons à la bibliothèque ?", answerText: "C'est « Nous » -> allons",
+                    conjugation: { infinitive: "aller", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "vais" }, { pronoun: "tu", verb: "vas" }, { pronoun: "il", verb: "va" }, { pronoun: "nous", verb: "allons", isTarget: true }, { pronoun: "vous", verb: "allez" }, { pronoun: "ils", verb: "vont" }] }
+                },
+                step6: [5, 6],
+                dictionary: {
+                    5: { word: "bibliothèque", class: "nom commun", gender: "féminin", number: "singulier", def: "Lieu où sont rangés et prêtés des livres." },
+                    6: { word: "municipale", class: "adjectif", gender: "féminin", number: "singulier", def: "Qui appartient à une ville ou une municipalité." }
+                },
+                reflection: {
+                    question: "Dans le GN « la grande bibliothèque municipale », combien y a-t-il d'adjectifs ?",
+                    options: ["Deux (grande, municipale).", "Un seul (grande)."],
+                    answer: 0,
+                    explanation: "Il y a deux adjectifs qui qualifient la bibliothèque : comment est-elle ? Elle est grande et municipale."
+                }
+            },
+            // Phrase 5
+            {
+                words: [
+                    { id: 0, full: "Cette", cap: "C", body: "ett", end: "e", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "belle", cap: "", body: "bell", end: "e", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "journée", cap: "", body: "journé", end: "e", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "ensoleillée", cap: "", body: "ensoleillé", end: "e", punc: "", role: "adj", gn: 1 },
+                    { id: 4, full: "est", cap: "", body: "est", end: "", punc: "", role: "verb", gn: null },
+                    { id: 5, full: "un", cap: "", body: "un", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 6, full: "cadeau", cap: "", body: "cadeau", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 7, full: "précieux.", cap: "", body: "précieux", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '7-punc'], step2: [[0, 1, 2, 3], [5, 6, 7]], step3: [2, 6], step4: [4],
+                step5: {
+                    gnsWords: [0, 1, 2, 3], verbId: 4, question: "Qu'est-ce qui est un cadeau précieux ?", answerText: "C'est « Cette belle journée ensoleillée » (elle) -> est",
+                    conjugation: { infinitive: "être", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "suis" }, { pronoun: "tu", verb: "es" }, { pronoun: "il/elle", verb: "est", isTarget: true }, { pronoun: "nous", verb: "sommes" }, { pronoun: "vous", verb: "êtes" }, { pronoun: "ils", verb: "sont" }] }
+                },
+                step6: [3, 7],
+                dictionary: {
+                    3: { word: "ensoleillée", class: "adjectif", gender: "féminin", number: "singulier", def: "Illuminé ou chauffé par le soleil." },
+                    7: { word: "précieux", class: "adjectif", gender: "masculin", number: "singulier", def: "Qui a beaucoup de valeur ou d'importance." }
+                },
+                reflection: {
+                    question: "Le mot 'précieux' prend un 'x' à la fin. Pourquoi ?",
+                    options: ["C'est un mot qui s'écrit toujours avec un 'x' au masculin singulier.", "Parce qu'il est au pluriel."],
+                    answer: 0,
+                    explanation: "Certains adjectifs se terminent naturellement par 'x' au masculin singulier (heureux, précieux, courageux)."
+                }
+            },
+            // Phrase 6
+            {
+                words: [
+                    { id: 0, full: "Les", cap: "L", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "petites", cap: "", body: "petit", end: "es", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "filles", cap: "", body: "fill", end: "es", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "flânent", cap: "", body: "flânent", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "dans", cap: "", body: "dans", end: "", punc: "", role: "prep", gn: null },
+                    { id: 5, full: "le", cap: "", body: "le", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 6, full: "parc", cap: "", body: "parc", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 7, full: "fleuri.", cap: "", body: "fleuri", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '7-punc'], step2: [[0, 1, 2], [5, 6, 7]], step3: [2, 6], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui flânent dans le parc ?", answerText: "C'est « Les petites filles » (elles) -> flânent",
+                    conjugation: { infinitive: "flâner", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "flâne" }, { pronoun: "tu", verb: "flânes" }, { pronoun: "il", verb: "flâne" }, { pronoun: "nous", verb: "flânons" }, { pronoun: "vous", verb: "flânez" }, { pronoun: "ils/elles", verb: "flânent", isTarget: true }] }
+                },
+                step6: [3, 7],
+                dictionary: {
+                    3: { word: "flâner", class: "verbe", gender: "-", number: "-", def: "Se promener sans but précis, lentement." },
+                    7: { word: "fleuri", class: "adjectif", gender: "masculin", number: "singulier", def: "Garni ou couvert de fleurs." }
+                },
+                reflection: {
+                    question: "Pourquoi le verbe se termine-t-il par '-ent' ?",
+                    options: ["Parce que le sujet est à la 3e personne du pluriel (elles).", "Parce que c'est le pluriel d'un nom."],
+                    answer: 0,
+                    explanation: "La marque du pluriel pour les verbes à la 3e personne est '-ent', contrairement aux noms et adjectifs qui prennent un 's' ou un 'x'."
+                }
+            },
+            // Phrase 7
+            {
+                words: [
+                    { id: 0, full: "Ce", cap: "C", body: "e", end: "", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "chien", cap: "", body: "chien", end: "", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "joyeux", cap: "", body: "joyeux", end: "", punc: "", role: "adj", gn: 1 },
+                    { id: 3, full: "resplendit", cap: "", body: "resplendit", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "de", cap: "", body: "de", end: "", punc: "", role: "prep", gn: null },
+                    { id: 5, full: "bonheur", cap: "", body: "bonheur", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 6, full: "pur.", cap: "", body: "pur", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[0, 1, 2], [5, 6]], step3: [1, 5], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui resplendit de bonheur ?", answerText: "C'est « Ce chien joyeux » (il) -> resplendit",
+                    conjugation: { infinitive: "resplendir", tense: "Présent de l'indicatif", forms: [{ pronoun: "je", verb: "resplendis" }, { pronoun: "tu", verb: "resplendis" }, { pronoun: "il", verb: "resplendit", isTarget: true }, { pronoun: "nous", verb: "resplendissons" }, { pronoun: "vous", verb: "resplendissez" }, { pronoun: "ils", verb: "resplendissent" }] }
+                },
+                step6: [3, 5],
+                dictionary: {
+                    3: { word: "resplendir", class: "verbe", gender: "-", number: "-", def: "Briller d'un vif éclat, rayonner." },
+                    5: { word: "bonheur", class: "nom commun", gender: "masculin", number: "singulier", def: "État de pleine satisfaction, de joie intense." }
+                },
+                reflection: {
+                    question: "L'adjectif 'joyeux' s'accorde avec...",
+                    options: ["Le nom noyau 'chien' (masculin singulier).", "Le verbe 'resplendit'."],
+                    answer: 0,
+                    explanation: "Les adjectifs s'accordent toujours avec le nom qu'ils accompagnent (le noyau)."
+                }
+            },
+            // Phrase 8
+            {
+                words: [
+                    { id: 0, full: "Les", cap: "L", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "immenses", cap: "", body: "immense", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "vagues", cap: "", body: "vague", end: "s", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "bleues", cap: "", body: "bleue", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 4, full: "frappent", cap: "", body: "frappent", end: "", punc: "", role: "verb", gn: null },
+                    { id: 5, full: "le", cap: "", body: "le", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 6, full: "rocher", cap: "", body: "rocher", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 7, full: "solide.", cap: "", body: "solide", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '7-punc'], step2: [[0, 1, 2, 3], [5, 6, 7]], step3: [2, 6], step4: [4],
+                step5: {
+                    gnsWords: [0, 1, 2, 3], verbId: 4, question: "Qu'est-ce qui frappent le rocher ?", answerText: "C'est « Les immenses vagues bleues » (elles) -> frappent",
+                    conjugation: { infinitive: "frapper", tense: "Présent", forms: [{ pronoun: "je", verb: "frappe" }, { pronoun: "tu", verb: "frappes" }, { pronoun: "il", verb: "frappe" }, { pronoun: "nous", verb: "frappons" }, { pronoun: "vous", verb: "frappez" }, { pronoun: "elles", verb: "frappent", isTarget: true }] }
+                },
+                step6: [1, 6],
+                dictionary: {
+                    1: { word: "immense", class: "adjectif", gender: "féminin", number: "pluriel", def: "Très grand, vaste." },
+                    6: { word: "rocher", class: "nom commun", gender: "masculin", number: "singulier", def: "Grosse masse de pierre." }
+                },
+                reflection: { question: "Trouve le noyau du GNS :", options: ["vagues", "immenses"], answer: 0, explanation: "Le nom noyau est la chose principale dont on parle : ce sont les vagues." }
+            },
+            // Phrase 9
+            {
+                words: [
+                    { id: 0, full: "Mon", cap: "M", body: "on", end: "", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "frère", cap: "", body: "frère", end: "", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "aîné", cap: "", body: "aîné", end: "", punc: "", role: "adj", gn: 1 },
+                    { id: 3, full: "finit", cap: "", body: "finit", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "son", cap: "", body: "son", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 5, full: "délicieux", cap: "", body: "délicieux", end: "", punc: "", role: "adj", gn: 2 },
+                    { id: 6, full: "repas.", cap: "", body: "repas", end: "", punc: ".", role: "noun", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[0, 1, 2], [4, 5, 6]], step3: [1, 6], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui finit son repas ?", answerText: "C'est « Mon frère aîné » (il) -> finit",
+                    conjugation: { infinitive: "finir", tense: "Présent", forms: [{ pronoun: "je", verb: "finis" }, { pronoun: "tu", verb: "finis" }, { pronoun: "il", verb: "finit", isTarget: true }, { pronoun: "nous", verb: "finissons" }, { pronoun: "vous", verb: "finissez" }, { pronoun: "ils", verb: "finissent" }] }
+                },
+                step6: [2, 5],
+                dictionary: {
+                    2: { word: "aîné", class: "adjectif", gender: "masculin", number: "singulier", def: "Qui est né le premier par rapport à ses frères et sœurs." },
+                    5: { word: "délicieux", class: "adjectif", gender: "masculin", number: "singulier", def: "Très bon au goût." }
+                },
+                reflection: { question: "Le mot 'repas' prend toujours un 's'. Vrai ou Faux ?", options: ["Vrai, il s'écrit avec un 's' même au singulier.", "Faux."], answer: 0, explanation: "Un repas, des repas. C'est un mot qui se termine toujours par 's'." }
+            },
+            // Phrase 10
+            {
+                words: [
+                    { id: 0, full: "La", cap: "L", body: "a", end: "", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "maîtresse", cap: "", body: "maîtresse", end: "", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "explique", cap: "", body: "explique", end: "", punc: "", role: "verb", gn: null },
+                    { id: 3, full: "la", cap: "", body: "la", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 4, full: "nouvelle", cap: "", body: "nouvell", end: "e", punc: "", role: "adj", gn: 2 },
+                    { id: 5, full: "leçon.", cap: "", body: "leçon", end: "", punc: ".", role: "noun", gn: 2 }
+                ],
+                step1: ['0-cap', '5-punc'], step2: [[0, 1], [3, 4, 5]], step3: [1, 5], step4: [2],
+                step5: {
+                    gnsWords: [0, 1], verbId: 2, question: "Qui est-ce qui explique la leçon ?", answerText: "C'est « La maîtresse » (elle) -> explique",
+                    conjugation: { infinitive: "expliquer", tense: "Présent", forms: [{ pronoun: "je", verb: "explique" }, { pronoun: "tu", verb: "expliques" }, { pronoun: "elle", verb: "explique", isTarget: true }, { pronoun: "nous", verb: "expliquons" }, { pronoun: "vous", verb: "expliquez" }, { pronoun: "elles", verb: "expliquent" }] }
+                },
+                step6: [1, 4],
+                dictionary: {
+                    1: { word: "maîtresse", class: "nom", gender: "féminin", number: "singulier", def: "Femme qui enseigne dans une école primaire." },
+                    4: { word: "nouvelle", class: "adjectif", gender: "féminin", number: "singulier", def: "Qui est récent, qu'on vient d'apprendre." }
+                },
+                reflection: { question: "Quel est le genre du mot leçon ?", options: ["Féminin (une leçon).", "Masculin (un leçon)."], answer: 0, explanation: "On dit 'une' leçon ou 'la' leçon, c'est donc un nom féminin." }
+            },
+            // Phrase 11
+            {
+                words: [
+                    { id: 0, full: "Les", cap: "L", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "oiseaux", cap: "", body: "oiseau", end: "x", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "migrateurs", cap: "", body: "migrateur", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 3, full: "volent", cap: "", body: "volent", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "vers", cap: "", body: "vers", end: "", punc: "", role: "prep", gn: null },
+                    { id: 5, full: "le", cap: "", body: "le", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 6, full: "sud", cap: "", body: "sud", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 7, full: "chaud.", cap: "", body: "chaud", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '7-punc'], step2: [[0, 1, 2], [5, 6, 7]], step3: [1, 6], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui volent vers le sud ?", answerText: "C'est « Les oiseaux migrateurs » (ils) -> volent",
+                    conjugation: { infinitive: "voler", tense: "Présent", forms: [{ pronoun: "je", verb: "vole" }, { pronoun: "tu", verb: "voles" }, { pronoun: "il", verb: "vole" }, { pronoun: "nous", verb: "volons" }, { pronoun: "vous", verb: "volez" }, { pronoun: "ils", verb: "volent", isTarget: true }] }
+                },
+                step6: [1, 2],
+                dictionary: {
+                    1: { word: "oiseau", class: "nom", gender: "masculin", number: "pluriel (x)", def: "Animal vertébré couvert de plumes, muni d'ailes." },
+                    2: { word: "migrateur", class: "adjectif", gender: "masculin", number: "pluriel", def: "Qui effectue des migrations (voyages selon les saisons)." }
+                },
+                reflection: { question: "Le pluriel de 'oiseau' prend...", options: ["Un 'x'.", "Un 's'."], answer: 0, explanation: "Les mots terminés en -eau prennent généralement un 'x' au pluriel (un oiseau, des oiseaux)." }
+            },
+            // Phrase 12
+            {
+                words: [
+                    { id: 0, full: "Je", cap: "J", body: "e", end: "", punc: "", role: "pronoun", gn: 1 },
+                    { id: 1, full: "suis", cap: "", body: "suis", end: "", punc: "", role: "verb", gn: null },
+                    { id: 2, full: "un", cap: "", body: "un", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 3, full: "explorateur", cap: "", body: "explorateur", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 4, full: "courageux.", cap: "", body: "courageux", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '4-punc'], step2: [[2, 3, 4]], step3: [3], step4: [1],
+                step5: {
+                    gnsWords: [0], verbId: 1, question: "Qui est-ce qui suis un explorateur ?", answerText: "C'est « Je » -> suis",
+                    conjugation: { infinitive: "être", tense: "Présent", forms: [{ pronoun: "je", verb: "suis", isTarget: true }, { pronoun: "tu", verb: "es" }, { pronoun: "il", verb: "est" }, { pronoun: "nous", verb: "sommes" }, { pronoun: "vous", verb: "êtes" }, { pronoun: "ils", verb: "sont" }] }
+                },
+                step6: [3, 4],
+                dictionary: {
+                    3: { word: "explorateur", class: "nom", gender: "masculin", number: "singulier", def: "Personne qui voyage pour découvrir de nouveaux lieux." },
+                    4: { word: "courageux", class: "adjectif", gender: "masculin", number: "singulier", def: "Qui montre du courage, de la bravoure." }
+                },
+                reflection: { question: "Quel est l'infinitif du verbe 'suis' ?", options: ["être", "suivre (ou être)"], answer: 0, explanation: "Dans ce contexte, 'suivre' marcherait aussi grammatiellement, mais c'est bien le verbe 'être' (état)." }
+            },
+            // Phrase 13
+            {
+                words: [
+                    { id: 0, full: "Mes", cap: "M", body: "e", end: "s", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "amis", cap: "", body: "ami", end: "s", punc: "", role: "noun", gn: 1 },
+                    { id: 2, full: "fidèles", cap: "", body: "fidèle", end: "s", punc: "", role: "adj", gn: 1 },
+                    { id: 3, full: "aiment", cap: "", body: "aiment", end: "", punc: "", role: "verb", gn: null },
+                    { id: 4, full: "la", cap: "", body: "la", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 5, full: "musique", cap: "", body: "musique", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 6, full: "douce.", cap: "", body: "douce", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '6-punc'], step2: [[0, 1, 2], [4, 5, 6]], step3: [1, 5], step4: [3],
+                step5: {
+                    gnsWords: [0, 1, 2], verbId: 3, question: "Qui est-ce qui aiment la musique ?", answerText: "C'est « Mes amis fidèles » (ils) -> aiment",
+                    conjugation: { infinitive: "aimer", tense: "Présent", forms: [{ pronoun: "j'", verb: "aime" }, { pronoun: "tu", verb: "aimes" }, { pronoun: "il", verb: "aime" }, { pronoun: "nous", verb: "aimons" }, { pronoun: "vous", verb: "aimez" }, { pronoun: "ils", verb: "aiment", isTarget: true }] }
+                },
+                step6: [2, 6],
+                dictionary: {
+                    2: { word: "fidèle", class: "adjectif", gender: "masculin", number: "pluriel", def: "Qui est attaché, constant dans ses affections." },
+                    6: { word: "douce", class: "adjectif", gender: "féminin", number: "singulier", def: "Agréable aux sens, sans dureté." }
+                },
+                reflection: { question: "Le verbe 'aiment' est au...", options: ["Pluriel (avec -nt).", "Singulier."], answer: 0, explanation: "Le sujet est 'Mes amis' (ils), c'est du pluriel donc le verbe prend -nt." }
+            },
+            // Phrase 14
+            {
+                words: [
+                    { id: 0, full: "Le", cap: "L", body: "e", end: "", punc: "", role: "det", gn: 1 },
+                    { id: 1, full: "vieux", cap: "", body: "vieux", end: "", punc: "", role: "adj", gn: 1 },
+                    { id: 2, full: "chat", cap: "", body: "chat", end: "", punc: "", role: "noun", gn: 1 },
+                    { id: 3, full: "gris", cap: "", body: "gris", end: "", punc: "", role: "adj", gn: 1 },
+                    { id: 4, full: "dort", cap: "", body: "dort", end: "", punc: "", role: "verb", gn: null },
+                    { id: 5, full: "sur", cap: "", body: "sur", end: "", punc: "", role: "prep", gn: null },
+                    { id: 6, full: "le", cap: "", body: "le", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 7, full: "canapé", cap: "", body: "canapé", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 8, full: "confortable.", cap: "", body: "confortable", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '8-punc'], step2: [[0, 1, 2, 3], [6, 7, 8]], step3: [2, 7], step4: [4],
+                step5: {
+                    gnsWords: [0, 1, 2, 3], verbId: 4, question: "Qui est-ce qui dort ?", answerText: "C'est « Le vieux chat gris » (il) -> dort",
+                    conjugation: { infinitive: "dormir", tense: "Présent", forms: [{ pronoun: "je", verb: "dors" }, { pronoun: "tu", verb: "dors" }, { pronoun: "il", verb: "dort", isTarget: true }, { pronoun: "nous", verb: "dormons" }, { pronoun: "vous", verb: "dormez" }, { pronoun: "ils", verb: "dorment" }] }
+                },
+                step6: [1, 8],
+                dictionary: {
+                    1: { word: "vieux", class: "adjectif", gender: "masculin", number: "singulier", def: "Qui est âgé." },
+                    8: { word: "confortable", class: "adjectif", gender: "masculin", number: "singulier", def: "Qui procure du bien-être, qui est douillet." }
+                },
+                reflection: { question: "Le mot 'gris' s'écrit avec un 's' parce que...", options: ["C'est sa terminaison naturelle au singulier.", "Il est au pluriel."], answer: 0, explanation: "Un chat gris. Même au singulier, il prend un 's' (comme souris)." }
+            },
+            // Phrase 15
+            {
+                words: [
+                    { id: 0, full: "Vous", cap: "V", body: "ous", end: "", punc: "", role: "pronoun", gn: 1 },
+                    { id: 1, full: "avez", cap: "", body: "avez", end: "", punc: "", role: "verb", gn: null },
+                    { id: 2, full: "une", cap: "", body: "une", end: "", punc: "", role: "det", gn: 2 },
+                    { id: 3, full: "idée", cap: "", body: "idée", end: "", punc: "", role: "noun", gn: 2 },
+                    { id: 4, full: "géniale.", cap: "", body: "géniale", end: "", punc: ".", role: "adj", gn: 2 }
+                ],
+                step1: ['0-cap', '4-punc'], step2: [[2, 3, 4]], step3: [3], step4: [1],
+                step5: {
+                    gnsWords: [0], verbId: 1, question: "Qui est-ce qui avez une idée ?", answerText: "C'est « Vous » -> avez",
+                    conjugation: { infinitive: "avoir", tense: "Présent", forms: [{ pronoun: "j'", verb: "ai" }, { pronoun: "tu", verb: "as" }, { pronoun: "il", verb: "a" }, { pronoun: "nous", verb: "avons" }, { pronoun: "vous", verb: "avez", isTarget: true }, { pronoun: "ils", verb: "ont" }] }
+                },
+                step6: [3, 4],
+                dictionary: {
+                    3: { word: "idée", class: "nom", gender: "féminin", number: "singulier", def: "Ce qu'on imagine ou pense dans son esprit." },
+                    4: { word: "géniale", class: "adjectif", gender: "féminin", number: "singulier", def: "Qui témoigne d'un grand talent ou d'une intelligence exceptionnelle." }
+                },
+                reflection: { question: "Avec le pronom 'Vous', la terminaison du verbe au présent est très souvent...", options: ["-ez", "-ent"], answer: 0, explanation: "Vous chantez, vous avez, vous allez... C'est la terminaison '-ez'." }
+            }
+        ];
+
+        // Composant d'affichage d'un mot
+        const Word = ({ word, currentStep, selectedStep1, selectedStep2, selectedStep4, selectedStep5, selectedStep6, isNounTarget }) => {
+            const isCapSelected = selectedStep1.includes(`${word.id}-cap`);
+            const isPuncSelected = selectedStep1.includes(`${word.id}-punc`);
+            
+            // Highlight interactif pour l'étape 2
+            const isStep2Selected = currentStep === 2 && selectedStep2.includes(word.id);
+            
+            const isVerb = selectedStep4.includes(word.id);
+            const isGNS = selectedStep5 && selectedStep5.gnsWords.includes(word.id);
+            const isStar = selectedStep6.includes(word.id);
+
+            return (
+                <span className={`relative inline-flex items-baseline mx-1 transition-all duration-200 word-item-${word.id} ${isStep2Selected ? 'bg-emerald-100 rounded shadow-sm ring-2 ring-emerald-300' : ''}`} data-id={word.id}>
+                    {/* Étoile étape 6 */}
+                    {isStar && <span className="star-doubt bounce-slight">★</span>}
+
+                    {/* Majuscule */}
+                    {word.cap && (
+                        <span className={`target-part ${isCapSelected ? 'selected-step1' : ''}`}>
+                            {word.cap}
+                        </span>
+                    )}
+                    
+                    {/* Corps + Terminaison du mot */}
+                    <span className={`
+                        ${isVerb ? 'verb-underlined' : ''}
+                        ${isGNS ? 'gns-highlight' : ''}
+                    `}>
+                        {word.body}
+                        <span className={`
+                            word-role-${word.role}
+                            ${currentStep === 3 && isNounTarget && word.role === 'noun' ? 'font-bold text-blue-900 border-b-2 border-blue-500' : ''}
+                            ${currentStep === 3 && isNounTarget && (word.role === 'adj' || word.role === 'det') && word.end !== "" ? 'circled-lunette' : ''}
+                            ${currentStep === 3 && isNounTarget && word.role === 'det' && word.end === "" ? 'circled-lunette' : ''}
+                        `}>
+                            {word.end}
+                        </span>
+                    </span>
+
+                    {/* Ponctuation */}
+                    {word.punc && (
+                        <span className={`target-part ${isPuncSelected ? 'selected-step1' : ''}`}>
+                            {word.punc}
+                        </span>
+                    )}
+                </span>
+            );
+        };
+
+        // Bloc GN avec logique SVG recalculée au millimètre près
+        const GNBlock = ({ words, currentStep, selectedStep1, selectedStep2, selectedStep3, selectedStep4, selectedStep5, selectedStep6, onWordClick }) => {
+            const containerRef = useRef(null);
+            const [arcs, setArcs] = useState([]);
+            
+            // Le GN est entièrement validé si tous ses mots sont sélectionnés
+            const isGNSelected = words.every(w => selectedStep2.includes(w.id));
+            
+            // Identifier le noyau de ce GN spécifique
+            const nounWord = words.find(w => w.role === 'noun');
+            const nounId = nounWord ? nounWord.id : -1;
+            const isLunettesActive = selectedStep3.includes(nounId);
+
+            useLayoutEffect(() => {
+                const drawArcs = () => {
+                    if (currentStep === 3 && isLunettesActive && containerRef.current && nounWord) {
+                        const containerRect = containerRef.current.getBoundingClientRect();
+                        
+                        // Cibler le mot Nom Noyau
+                        const nounEl = containerRef.current.querySelector(`.word-item-${nounWord.id}`);
+                        
+                        if (nounEl) {
+                            const nounRect = nounEl.getBoundingClientRect();
+                            // Point de départ : Centre exact du haut du Nom Noyau
+                            const startX = nounRect.left - containerRect.left + (nounRect.width / 2);
+                            const startY = nounRect.top - containerRect.top + 2;
+
+                            let newArcs = [];
+
+                            // Tracer vers les autres mots du GN (déterminants et adjectifs)
+                            words.forEach(targetWord => {
+                                if (targetWord.id !== nounWord.id && (targetWord.role === 'det' || targetWord.role === 'adj')) {
+                                    const targetEl = containerRef.current.querySelector(`.word-item-${targetWord.id}`);
+                                    if (targetEl) {
+                                        const targetRect = targetEl.getBoundingClientRect();
+                                        // Point d'arrivée : Centre exact du haut du mot cible
+                                        const endX = targetRect.left - containerRect.left + (targetRect.width / 2);
+                                        const endY = targetRect.top - containerRect.top + 2;
+
+                                        // Hauteur de la courbe proportionnelle à la distance
+                                        const distance = Math.abs(startX - endX);
+                                        const arcHeight = Math.min(Math.max(distance * 0.35, 20), 45);
+                                        const controlY = Math.min(startY, endY) - arcHeight;
+
+                                        newArcs.push(`M ${startX} ${startY} Q ${(startX + endX) / 2} ${controlY} ${endX} ${endY}`);
+                                    }
+                                }
+                            });
+
+                            setArcs(newArcs);
+                        }
+                    } else {
+                        setArcs([]);
+                    }
+                };
+
+                drawArcs();
+                // Utiliser RequestAnimationFrame pour garantir le rendu complet du DOM
+                const handleResize = () => requestAnimationFrame(drawArcs);
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, [currentStep, isLunettesActive, words, nounWord]);
+
+            return (
+                <span ref={containerRef} className={`gn-container mx-1 p-1 rounded-xl transition-all duration-300 ${
+                    isGNSelected ? 'border-4 border-emerald-500 bg-emerald-50 shadow-sm' : 'border-4 border-transparent'
+                }`}>
+                    {currentStep === 3 && isLunettesActive && (
+                        <svg className="svg-overlay" style={{ overflow: 'visible' }}>
+                            {arcs.map((d, i) => (
+                                <path key={i} d={d} fill="none" stroke="#2563eb" strokeWidth="3" className="path-draw" strokeLinecap="round" />
+                            ))}
+                        </svg>
+                    )}
+
+                    {words.map(w => (
+                        <span key={w.id} onClick={(e) => onWordClick(w, e)} className={`cursor-pointer ${currentStep === 1 ? 'step1-active' : ''}`}>
+                            <Word 
+                                word={w}
+                                currentStep={currentStep}
+                                selectedStep1={selectedStep1}
+                                selectedStep2={selectedStep2}
+                                selectedStep4={selectedStep4}
+                                selectedStep5={selectedStep5}
+                                selectedStep6={selectedStep6}
+                                isNounTarget={isLunettesActive}
+                            />
+                        </span>
+                    ))}
+                </span>
+            );
+        };
+
+        // Méthode (Onglet 1)
+        const DiscoveryTab = ({ onStartSimulator }) => (
+            <div className="w-full h-full overflow-y-auto p-4 md:p-8 bg-slate-50 pb-24">
+                <div className="max-w-6xl mx-auto fade-in">
+                    <div className="bg-white rounded-3xl p-8 lg:p-12 shadow-xl border border-indigo-100 text-center mb-8">
+                        <h2 className="text-4xl lg:text-5xl font-black text-indigo-900 mb-6 tracking-tight">Le Code de Correction</h2>
+                        <p className="text-xl md:text-2xl text-gray-600 mb-10 font-medium">Une méthode infaillible en 6 étapes !</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 text-left">
+                            <div className="bg-indigo-50 rounded-2xl p-6 border-2 border-indigo-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black text-2xl">1</div>
+                                    <h3 className="font-extrabold text-xl text-indigo-900">Majuscule et Point</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed mb-4">Je m'assure que mes phrases commencent par une <span className="bg-amber-200 font-bold px-1 rounded">M</span>ajuscule et se terminent par un point<span className="bg-amber-200 font-bold px-1 rounded">.</span></p>
+                            </div>
+                            <div className="bg-emerald-50 rounded-2xl p-6 border-2 border-emerald-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-emerald-500 text-white rounded-full flex items-center justify-center font-black text-2xl">2</div>
+                                    <h3 className="font-extrabold text-xl text-emerald-900">Les GN</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed mb-4">J'encadre chaque Groupe du Nom (GN) en touchant <strong>tous les mots</strong> qui le composent (Déterminant + Nom + Adjectif).</p>
+                            </div>
+                            <div className="bg-blue-50 rounded-2xl p-6 border-2 border-blue-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-blue-500 text-white rounded-full flex items-center justify-center font-black text-2xl">3</div>
+                                    <h3 className="font-extrabold text-xl text-blue-900">Les Accords</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed">Je fais des lunettes ! Je pars du nom noyau pour donner le genre et le nombre au déterminant et aux adjectifs.</p>
+                            </div>
+                            <div className="bg-red-50 rounded-2xl p-6 border-2 border-red-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-red-500 text-white rounded-full flex items-center justify-center font-black text-2xl">4</div>
+                                    <h3 className="font-extrabold text-xl text-red-900">Les Verbes</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed">Je repère l'action ou l'état. Je <span className="border-b-4 border-red-500 text-red-800 font-bold">souligne</span> tous les verbes conjugués dans ma phrase.</p>
+                            </div>
+                            <div className="bg-orange-50 rounded-2xl p-6 border-2 border-orange-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-orange-500 text-white rounded-full flex items-center justify-center font-black text-2xl">5</div>
+                                    <h3 className="font-extrabold text-xl text-orange-900">Accord du GNS</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed">Je pose la question <br/>« <em>Qui est-ce qui... ?</em> ». Je relie le Sujet à son Verbe pour choisir la bonne terminaison.</p>
+                            </div>
+                            <div className="bg-purple-50 rounded-2xl p-6 border-2 border-purple-200 shadow-sm hover:shadow-md transition">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <div className="w-12 h-12 bg-purple-500 text-white rounded-full flex items-center justify-center font-black text-2xl">6</div>
+                                    <h3 className="font-extrabold text-xl text-purple-900">Le Doute</h3>
+                                </div>
+                                <p className="text-gray-700 font-medium leading-relaxed">Je place une étoile sur les mots dont l'orthographe me fait douter. Je vérifie ensuite dans mon dictionnaire !</p>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={onStartSimulator}
+                            className="mt-12 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-2xl py-5 px-12 rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] transition transform active:scale-95 flex items-center justify-center gap-4 mx-auto w-full sm:w-auto"
+                        >
+                            Lancer le simulateur <Icon name="rocket" className="w-8 h-8" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // Simulateur (Onglet 2)
+        const SimulatorTab = ({ onFinish }) => {
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [currentStep, setCurrentStep] = useState(1);
+
+            // États des sélections
+            const [selectedStep1, setSelectedStep1] = useState([]);
+            const [selectedStep2, setSelectedStep2] = useState([]);
+            const [selectedStep3, setSelectedStep3] = useState([]);
+            const [selectedStep4, setSelectedStep4] = useState([]);
+            const [selectedStep5, setSelectedStep5] = useState(null);
+            const [selectedStep6, setSelectedStep6] = useState([]);
+
+            // États UI Modals
+            const [feedback, setFeedback] = useState({ status: 'idle', message: '' });
+            const [showDictionary, setShowDictionary] = useState(false);
+            const [currentDictWord, setCurrentDictWord] = useState(null);
+            const [showConjugation, setShowConjugation] = useState(false);
+            const [showReflection, setShowReflection] = useState(false);
+
+            const currentData = SENTENCES_DATA[currentIndex];
+            if (!currentData) return <div className="p-10 text-center text-2xl h-full flex items-center justify-center font-bold text-indigo-800">Activité terminée ! Bravo ! 🎉</div>;
+
+            const handleWordClick = (word, event) => {
+                // Étape 1 : Majuscule & Ponctuation
+                if (currentStep === 1) {
+                    const target = event?.target;
+                    // On utilise closest pour s'assurer que c'est bien la lettre cliquée
+                    const targetPart = target?.closest('.target-part');
+                    
+                    let clickedType = null;
+                    if (targetPart) {
+                        const text = targetPart.textContent.trim();
+                        if (word.cap && word.cap.includes(text)) {
+                            clickedType = `${word.id}-cap`;
+                        } else if (word.punc && word.punc.includes(text)) {
+                            clickedType = `${word.id}-punc`;
+                        }
+                    } else {
+                        // Tolérance: si on clique sur le mot en général, on vérifie s'il possède une cap
+                        if (word.cap && word.id === currentData.words.find(w=>w.cap)?.id) {
+                            clickedType = `${word.id}-cap`;
+                        } else if (word.punc && word.id === currentData.words.find(w=>w.punc)?.id) {
+                            clickedType = `${word.id}-punc`;
+                        }
+                    }
+                    
+                    if (clickedType) {
+                        setSelectedStep1(prev => prev.includes(clickedType) ? prev.filter(item => item !== clickedType) : [...prev, clickedType]);
+                    }
+                    return;
+                }
+
+                // Étape 2 : Groupes du Nom (GN) - Mots individuels
+                if (currentStep === 2) {
+                    if (word.gn !== null) {
+                        // L'utilisateur doit cliquer sur chaque mot du GN un par un
+                        setSelectedStep2(prev => 
+                            prev.includes(word.id) ? prev.filter(id => id !== word.id) : [...prev, word.id]
+                        );
+                    }
+                    return;
+                }
+
+                // Étape 3 : Accords du Nom (Lunettes)
+                if (currentStep === 3) {
+                    if (currentData.step3.includes(word.id)) {
+                        if (!selectedStep3.includes(word.id)) {
+                            const newSelected = [...selectedStep3, word.id];
+                            setSelectedStep3(newSelected);
+                            if (newSelected.length === currentData.step3.length) {
+                                setFeedback({ status: 'correct', message: "Bravo ! Les lunettes d'accord sont en place !" });
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // Étape 4 : Verbes
+                if (currentStep === 4) {
+                    setSelectedStep4(prev => prev.includes(word.id) ? prev.filter(id => id !== word.id) : [...prev, word.id]);
+                    return;
+                }
+
+                // Étape 5 : GNS
+                if (currentStep === 5) {
+                    if (currentData.step5.gnsWords.includes(word.id)) {
+                        setSelectedStep5(currentData.step5);
+                        setFeedback({ status: 'correct', message: currentData.step5.answerText });
+                        setTimeout(() => setShowConjugation(true), 600); // Délai pour voir le rouge
+                    } else {
+                        setFeedback({ status: 'incorrect', message: "Ce n'est pas le Sujet. Pose-toi la question : « " + currentData.step5.question + " »" });
+                    }
+                    return;
+                }
+
+                // Étape 6 : Doute orthographique
+                if (currentStep === 6) {
+                    let newSelected = [...selectedStep6];
+                    if (newSelected.includes(word.id)) {
+                        newSelected = newSelected.filter(id => id !== word.id);
+                    } else {
+                        newSelected.push(word.id);
+                    }
+                    setSelectedStep6(newSelected);
+
+                    // Si le mot est un mot cible du dictionnaire
+                    if (currentData.step6.includes(word.id) && currentData.dictionary && currentData.dictionary[word.id]) {
+                        setCurrentDictWord(word.id);
+                        setTimeout(() => setShowDictionary(true), 400);
+                    }
+                    
+                    const foundTargetWords = newSelected.filter(id => currentData.step6.includes(id));
+                    if (foundTargetWords.length >= currentData.step6.length) {
+                        setFeedback({ status: 'correct', message: "Bravo ! Tu as validé tes doutes orthographiques. Tu peux cliquer sur Question." });
+                    } else {
+                        setFeedback({ status: 'idle', message: `Mots vérifiés : ${foundTargetWords.length} / ${currentData.step6.length}` });
+                    }
+                    return;
+                }
+            };
+
+            const arraysEqual = (a, b) => {
+                if (!a || !b || a.length !== b.length) return false;
+                return [...a].sort().every((val, index) => val === [...b].sort()[index]);
+            };
+
+            const verifyStep = () => {
+                if (currentStep === 1) {
+                    if (arraysEqual(selectedStep1, currentData.step1)) setFeedback({ status: 'correct', message: "Excellent ! Majuscule et point trouvés." });
+                    else setFeedback({ status: 'incorrect', message: "Attention, as-tu bien touché la Majuscule ET le point final ?" });
+                } else if (currentStep === 2) {
+                    const expectedWords = currentData.step2.flat();
+                    const hasExtra = selectedStep2.some(id => !expectedWords.includes(id));
+                    const missing = expectedWords.filter(id => !selectedStep2.includes(id));
+
+                    if (arraysEqual(selectedStep2, expectedWords)) {
+                        setFeedback({ status: 'correct', message: "Parfait ! Les Groupes du Nom sont complètement encadrés." });
+                    } else if (hasExtra) {
+                        setFeedback({ status: 'incorrect', message: "Attention, tu as sélectionné des mots qui ne font pas partie d'un GN." });
+                    } else if (missing.length > 0) {
+                        setFeedback({ status: 'incorrect', message: "Il manque des mots ! As-tu sélectionné TOUS les déterminants, adjectifs et noms ?" });
+                    }
+                } else if (currentStep === 4) {
+                    if (arraysEqual(selectedStep4, currentData.step4)) setFeedback({ status: 'correct', message: "Très bien ! Le verbe conjugué est souligné." });
+                    else setFeedback({ status: 'incorrect', message: "As-tu souligné uniquement l'action (le verbe) ?" });
+                }
+            };
+
+            const handleNext = () => {
+                if (currentStep < 6) setCurrentStep(currentStep + 1);
+                else setShowReflection(true);
+                setFeedback({ status: 'idle', message: '' });
+            };
+
+            const handleCompleteReflection = () => {
+                setShowReflection(false);
+                setSelectedStep1([]); setSelectedStep2([]); setSelectedStep3([]);
+                setSelectedStep4([]); setSelectedStep5(null); setSelectedStep6([]);
+                setCurrentDictWord(null); setShowDictionary(false); setShowConjugation(false);
+                setFeedback({ status: 'idle', message: '' });
+                setCurrentStep(1);
+                setCurrentIndex(prev => prev + 1);
+            };
+
+            const renderSentence = () => {
+                const elements = [];
+                let i = 0;
+                const words = currentData.words;
+
+                while (i < words.length) {
+                    const w = words[i];
+                    if (w.gn !== null) {
+                        const gnWords = words.filter(word => word.gn === w.gn);
+                        elements.push(
+                            <GNBlock 
+                                key={`gn-${w.gn}`} words={gnWords} currentStep={currentStep}
+                                selectedStep1={selectedStep1} selectedStep2={selectedStep2}
+                                selectedStep3={selectedStep3} selectedStep4={selectedStep4}
+                                selectedStep5={selectedStep5} selectedStep6={selectedStep6}
+                                onWordClick={handleWordClick}
+                            />
+                        );
+                        i += gnWords.length;
+                    } else {
+                        elements.push(
+                            <span key={`word-${w.id}`} onClick={(e) => handleWordClick(w, e)} className={`cursor-pointer ${currentStep === 1 ? 'step1-active' : ''}`}>
+                                <Word word={w} currentStep={currentStep} selectedStep1={selectedStep1} selectedStep2={selectedStep2} selectedStep4={selectedStep4} selectedStep5={selectedStep5} selectedStep6={selectedStep6} />
+                            </span>
+                        );
+                        i++;
+                    }
+                }
+                return elements;
+            };
+
+            const STEPS_INFO = {
+                1: { title: "Étape 1 : Ponctuation", desc: "Touche la Majuscule du début et la ponctuation finale." },
+                2: { title: "Étape 2 : Les GN", desc: "Touche TOUS les mots composant chaque Groupe du Nom (Dét+Nom+Adj)." },
+                3: { title: "Étape 3 : Accords (Lunettes)", desc: "Touche le NOM NOYAU dans les cadres verts pour tracer tes lunettes !" },
+                4: { title: "Étape 4 : Les Verbes", desc: "Touche le verbe conjugué pour le souligner en rouge." },
+                5: { title: "Étape 5 : Accord du Verbe", desc: `Pose la question : « ${currentData.step5.question} » et touche le Sujet (GNS).` },
+                6: { title: "Étape 6 : Le Doute", desc: "Touche les mots douteux. Retrouve tous les mots cibles pour valider !" }
+            };
+
+            const isStep6ReadyToNext = currentStep === 6 && selectedStep6.filter(id => currentData.step6.includes(id)).length >= currentData.step6.length;
+
+            return (
+                <div className="flex-1 flex flex-col w-full h-full bg-slate-50 relative">
+                    
+                    {/* Header Progress (Fixé en haut via flex-shrink-0) */}
+                    <div className="bg-white px-4 py-4 shadow-sm z-10 flex flex-col sm:flex-row items-center justify-between border-b-2 border-indigo-100 shrink-0">
+                        <div className="font-bold text-xl text-indigo-800 bg-indigo-50 px-4 py-2 rounded-xl mb-4 sm:mb-0 border border-indigo-100 flex items-center gap-2">
+                            <Icon name="pen-tool" /> Phrase {currentIndex + 1} / {SENTENCES_DATA.length}
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto max-w-full pb-1 px-2 no-scrollbar">
+                            {[1,2,3,4,5,6].map((step) => {
+                                const isCurrent = currentStep === step;
+                                const isPast = currentStep > step;
+                                return (
+                                    <div key={step} className={`flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full font-bold text-lg shadow-sm transition-all shrink-0 ${
+                                        isCurrent ? 'bg-indigo-600 text-white scale-110 ring-4 ring-indigo-200' : 
+                                        isPast ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-400'
+                                    }`}>
+                                        {isPast ? <Icon name="check" className="w-6 h-6" /> : step}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Zone Principale (Scrollable, prend tout l'espace restant) */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center justify-start pb-8">
+                        <div className="w-full max-w-5xl">
+                            <div className="text-center mb-8">
+                                <h3 className="text-3xl sm:text-4xl font-extrabold text-indigo-900 mb-2">{STEPS_INFO[currentStep].title}</h3>
+                                <p className="text-xl sm:text-2xl text-gray-600 font-medium">{STEPS_INFO[currentStep].desc}</p>
+                                
+                                {currentStep === 5 && (
+                                    <div className="mt-4 bg-red-100 border-2 border-red-300 text-red-900 rounded-2xl p-3 px-6 font-bold text-2xl inline-block shadow-sm">
+                                        ® {currentData.step5.question}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="bg-white rounded-3xl shadow-xl p-8 sm:p-14 min-h-[300px] border-4 border-white flex flex-col justify-center items-center relative z-0">
+                                <div className="text-3xl sm:text-4xl md:text-6xl leading-[4rem] sm:leading-[6rem] text-center font-medium select-none w-full relative">
+                                    {renderSentence()}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Barre de contrôle (Fixée en bas via flex-shrink-0) */}
+                    <div className="shrink-0 bg-white border-t-2 border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] p-4 sm:p-6 z-20">
+                        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className={`flex-1 w-full rounded-2xl p-4 flex items-center gap-4 transition-all border-2 ${
+                                feedback.status === 'idle' ? 'bg-indigo-50 text-indigo-800 border-indigo-100' :
+                                feedback.status === 'correct' ? 'bg-emerald-100 text-emerald-900 border-emerald-400' :
+                                'bg-red-50 text-red-900 border-red-300'
+                            }`}>
+                                {feedback.status === 'correct' && <div className="bg-emerald-500 text-white rounded-full p-2"><Icon name="check" /></div>}
+                                {feedback.status === 'incorrect' && <div className="bg-red-500 text-white rounded-full p-2"><Icon name="x" /></div>}
+                                
+                                <div className="flex-1">
+                                    <p className="text-lg sm:text-xl md:text-2xl font-bold whitespace-pre-wrap leading-tight">
+                                        {feedback.status === 'idle' && (
+                                            (currentStep === 1 && selectedStep1.length > 0) || (currentStep === 2 && selectedStep2.length > 0) || (currentStep === 4 && selectedStep4.length > 0) ? "Vérifie ta réponse !" : 
+                                            currentStep === 3 ? "Touche les Noms Noyaux !" :
+                                            currentStep === 5 ? "Touche le sujet (GNS) !" :
+                                            currentStep === 6 ? "Touche un mot pour placer l'étoile ★" : "À toi de jouer !"
+                                        )}
+                                        {feedback.status !== 'idle' && feedback.message}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4 w-full sm:w-auto shrink-0">
+                                {(feedback.status === 'correct' || isStep6ReadyToNext) && !showDictionary && !showConjugation ? (
+                                    <button onClick={handleNext} className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-4 px-8 rounded-2xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-3 text-xl">
+                                        {currentStep === 6 ? "Question finale" : "Suivant"} <Icon name="arrowRight" />
+                                    </button>
+                                ) : (
+                                    <>
+                                        {currentStep !== 3 && currentStep !== 5 && currentStep !== 6 && (
+                                            <button 
+                                                onClick={verifyStep}
+                                                disabled={(currentStep===1&&selectedStep1.length===0)||(currentStep===2&&selectedStep2.length===0)||(currentStep===4&&selectedStep4.length===0)}
+                                                className={`w-full sm:w-auto font-extrabold py-4 px-10 rounded-2xl transition text-xl ${
+                                                    ((currentStep===1&&selectedStep1.length>0)||(currentStep===2&&selectedStep2.length>0)||(currentStep===4&&selectedStep4.length>0))
+                                                        ? "bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 shadow-lg" 
+                                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                                }`}
+                                            >
+                                                Vérifier
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* MODAL DICTIONNAIRE */}
+                    {showDictionary && currentDictWord !== null && currentData.dictionary[currentDictWord] && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                            <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full max-h-full overflow-y-auto shadow-2xl border-4 border-purple-200 slide-up">
+                                <div className="flex items-center gap-3 mb-6 border-b-2 border-purple-100 pb-4">
+                                    <div className="p-3 bg-purple-100 text-purple-700 rounded-2xl"><Icon name="book-open" className="w-8 h-8" /></div>
+                                    <div>
+                                        <h3 className="text-3xl font-black text-purple-900">{currentData.dictionary[currentDictWord].word}</h3>
+                                        <span className="text-sm font-bold text-purple-600 uppercase tracking-wider">Usito / Dictionnaire</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-4 text-gray-700 text-lg">
+                                    <div className="flex gap-2"><span className="font-bold text-gray-900">Classe :</span><span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-bold">{currentData.dictionary[currentDictWord].class}</span></div>
+                                    <div className="flex gap-2"><span className="font-bold text-gray-900">Genre / Nombre :</span><span className="text-gray-600 font-medium">{currentData.dictionary[currentDictWord].gender} {currentData.dictionary[currentDictWord].number}</span></div>
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mt-4">
+                                        <span className="font-bold text-gray-900 block mb-1">Définition :</span>
+                                        <p className="text-gray-700 font-medium leading-relaxed">{currentData.dictionary[currentDictWord].def}</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowDictionary(false)} className="mt-8 w-full bg-purple-600 hover:bg-purple-700 text-white font-black py-4 rounded-2xl text-xl shadow-lg transition active:scale-95 shrink-0">
+                                    J'ai compris !
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL CONJUGAISON */}
+                    {showConjugation && currentData.step5.conjugation && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                            <div className="bg-white rounded-3xl p-6 max-w-sm w-full max-h-full overflow-y-auto shadow-2xl border-4 border-red-200 slide-up">
+                                <div className="text-center mb-4 border-b-2 border-red-100 pb-4">
+                                    <h3 className="text-3xl font-black text-red-900 capitalize">{currentData.step5.conjugation.infinitive}</h3>
+                                    <span className="text-sm font-bold text-red-600 uppercase tracking-wider block mt-1">{currentData.step5.conjugation.tense}</span>
+                                </div>
+                                <div className="space-y-2 text-xl font-medium text-gray-700 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                    {currentData.step5.conjugation.forms.map((form, idx) => (
+                                        <div key={idx} className={`flex justify-center gap-3 ${form.isTarget ? 'text-red-700 font-black scale-110 bg-red-100 rounded-lg py-2 my-1 shadow-sm' : ''}`}>
+                                            <span className="w-24 text-right">{form.pronoun}</span>
+                                            <span className="w-24 text-left">{form.verb}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => setShowConjugation(false)} className="mt-6 w-full bg-red-500 hover:bg-red-600 text-white font-black py-4 rounded-2xl text-xl shadow-lg transition active:scale-95 shrink-0">
+                                    Fermer
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL REFLEXION */}
+                    {showReflection && (
+                        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 fade-in">
+                            <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl border-4 border-indigo-200 slide-up flex flex-col max-h-full">
+                                
+                                <div className="text-center mb-4 shrink-0 flex items-center justify-center gap-4">
+                                    <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center shadow-sm">
+                                        <Icon name="lightbulb" className="w-8 h-8" />
+                                    </div>
+                                    <h3 className="text-3xl font-black text-indigo-900">Minute de réflexion</h3>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto no-scrollbar pb-2">
+                                    <p className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center leading-snug">
+                                        {currentData.reflection.question}
+                                    </p>
+
+                                    <div className="space-y-3 mb-4">
+                                        {currentData.reflection.options.map((option, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => {
+                                                    if (idx === currentData.reflection.answer) setFeedback({ status: 'correct', message: currentData.reflection.explanation });
+                                                    else setFeedback({ status: 'incorrect', message: "Ce n'est pas tout à fait ça. Essaie l'autre choix !" });
+                                                }}
+                                                className="w-full text-left p-4 rounded-xl border-2 border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 font-bold text-lg text-gray-700 transition shadow-sm"
+                                            >
+                                                {option}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {feedback.status === 'correct' && (
+                                        <div className="bg-emerald-50 text-emerald-900 p-4 rounded-xl font-bold text-lg border-2 border-emerald-300 shadow-inner slide-up">
+                                            ✅ {feedback.message}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button
+                                    onClick={handleCompleteReflection}
+                                    disabled={feedback.status !== 'correct'}
+                                    className={`mt-4 w-full font-black py-4 rounded-xl text-xl transition shrink-0 ${
+                                        feedback.status === 'correct'
+                                            ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-[0_4px_20px_rgb(16,185,129,0.4)] active:scale-95'
+                                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    Passer à la phrase suivante
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('discovery');
+
+            return (
+                <div className="h-full flex flex-col w-full relative">
+                    <header className="bg-indigo-900 text-white py-3 px-6 shadow-md flex justify-between items-center shrink-0 z-30">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-amber-400 text-indigo-950 p-2 rounded-xl font-black text-2xl flex items-center justify-center">
+                                CC
+                            </div>
+                            <h1 className="text-2xl font-black tracking-wide">
+                                Code de Correction <span className="text-amber-400 font-medium text-lg hidden sm:inline ml-2">| PFEQ</span>
+                            </h1>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setActiveTab('discovery')}
+                                className={`px-4 py-2 rounded-xl font-bold transition flex gap-2 items-center ${
+                                    activeTab === 'discovery' ? 'bg-white text-indigo-900 shadow-md' : 'text-indigo-200 hover:bg-indigo-800'
+                                }`}
+                            >
+                                <Icon name="book-open" className="w-5 h-5" />
+                                <span className="hidden sm:inline">La Méthode</span>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('simulator')}
+                                className={`px-4 py-2 rounded-xl font-bold transition flex gap-2 items-center ${
+                                    activeTab === 'simulator' ? 'bg-amber-400 text-indigo-950 shadow-md' : 'text-indigo-200 hover:bg-indigo-800'
+                                }`}
+                            >
+                                <Icon name="play-circle" className="w-5 h-5" />
+                                <span className="hidden sm:inline">Entraînement</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    <main className="flex-1 flex flex-col overflow-hidden relative w-full">
+                        {activeTab === 'discovery' && <DiscoveryTab onStartSimulator={() => setActiveTab('simulator')} />}
+                        {activeTab === 'simulator' && <SimulatorTab onFinish={() => setActiveTab('discovery')} />}
+                    </main>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
